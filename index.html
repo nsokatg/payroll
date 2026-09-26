@@ -1,1 +1,399 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>個人用 給与手取り計算アプリ</title>
+  <!-- 精度保証のための Decimal.js (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/decimal.js/10.4.3/decimal.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #007bff;
+      --bg-color: #f4f7f9;
+      --card-bg: #ffffff;
+      --border-color: #cccccc;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    body {
+      background-color: var(--bg-color);
+      padding: 16px;
+      color: #333333;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 16px;
+      text-align: center;
+      color: #111111;
+    }
+    .status-badge {
+      text-align: center;
+      font-size: 0.85rem;
+      padding: 6px 12px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+      background-color: #e2e3e5;
+      color: #383d41;
+    }
+    .status-badge.success { background-color: #d4edda; color: #155724; }
+    .status-badge.error { background-color: #f8d7da; color: #721c24; }
 
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: bold;
+      margin-bottom: 10px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid var(--primary-color);
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      font-size: 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: #fff;
+    }
+    
+    /* シフト入力行 */
+    .shift-card {
+      background-color: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      position: relative;
+    }
+    .shift-row {
+      display: flex;
+      gap: 10px;
+    }
+    .shift-row > div {
+      flex: 1;
+    }
+    .btn-remove {
+      background: #dc3545;
+      color: white;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      margin-top: 6px;
+      float: right;
+    }
+    .btn-add {
+      background: #6c757d;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 20px;
+    }
+    .btn-calc {
+      background: var(--primary-color);
+      color: white;
+      border: none;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      width: 100%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,123,255,0.3);
+    }
+
+    /* 計算結果画面 */
+    .result-box {
+      margin-top: 24px;
+      background: #eef6ff;
+      border: 2px solid var(--primary-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: none;
+    }
+    .result-net {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #0056b3;
+      text-align: center;
+      margin: 10px 0;
+    }
+    .result-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    .result-table th, .result-table td {
+      padding: 6px 4px;
+      border-bottom: 1px solid #d0e2ff;
+    }
+    .result-table td:last-child {
+      text-align: right;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>給与手取り計算アプリ</h1>
+  <div id="statusBadge" class="status-badge">スプレッドシートから設定を読み込み中...</div>
+
+  <!-- シフト入力部分 -->
+  <div class="section-title">1. 勤務実績の入力</div>
+  <div id="shiftsContainer">
+    <!-- 動的に追加されるシフト枠 -->
+  </div>
+  <button type="button" class="btn-add" onclick="addShiftRow()">＋ シフト欄を追加</button>
+
+  <!-- 控除設定部分 -->
+  <div class="section-title">2. 控除設定</div>
+  <div class="form-group">
+    <label for="dependentsCount">扶養親族等の数 (人)</label>
+    <select id="dependentsCount">
+      <option value="0" selected>0人</option>
+      <option value="1">1人</option>
+      <option value="2">2人</option>
+      <option value="3">3人</option>
+      <option value="4">4人</option>
+      <option value="5">5人</option>
+      <option value="6">6人</option>
+      <option value="7">7人以上</option>
+    </select>
+  </div>
+
+  <button type="button" class="btn-calc" onclick="calculatePayroll()">手取り額を計算する</button>
+
+  <!-- 計算結果枠 -->
+  <div id="resultBox" class="result-box">
+    <div style="text-align: center; font-size: 0.9rem; color: #555;">差引支給額（手取り目安）</div>
+    <div id="netPayment" class="result-net">0 円</div>
+
+    <table class="result-table">
+      <tr><th>総支給額 (額面)</th><td id="grossPayment">0 円</td></tr>
+      <tr><th>健康保険料</th><td id="healthInsurance">0 円</td></tr>
+      <tr><th>介護保険料</th><td id="nursingInsurance">0 円</td></tr>
+      <tr><th>厚生年金保険料</th><td id="welfarePension">0 円</td></tr>
+      <tr><th>雇用保険料</th><td id="employmentInsurance">0 円</td></tr>
+      <tr><th>社会保険料 合計</th><td id="totalSocialInsurance">0 円</td></tr>
+      <tr><th>所得税 (源泉徴収額)</th><td id="incomeTax">0 円</td></tr>
+      <tr><th>住民税</th><td id="residentTax">0 円</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+  // -------------------------------------------------------------
+  // 1. 設定: あなたの GAS ウェブアプリ URL をここに設定します
+  // -------------------------------------------------------------
+  const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzwEypgG1tS1CV08Cd0-au7K9aexdiOM1J5R-bqa9iNny95qMRcezMquKuf5WDMfiZLxA/exec";
+
+  // 全局マスタキャッシュ
+  let masterRateData = null;
+
+  // Decimal.js グローバル設定
+  Decimal.set({ precision: 20, rounding: Decimal.ROUND_HALF_UP });
+
+  // -------------------------------------------------------------
+  // 2. 起動時処理: スプレッドシートからのデータ自動フェッチ
+  // -------------------------------------------------------------
+  window.addEventListener('DOMContentLoaded', async () => {
+    addShiftRow(1200, 160); // 初期入力行（例: 時給1,200円 160時間）
+    await loadMasterData();
+  });
+
+  async function loadMasterData() {
+    const badge = document.getElementById('statusBadge');
+    try {
+      const response = await fetch(GAS_WEB_APP_URL);
+      if (!response.ok) throw new Error('通信エラー');
+      
+      const data = await response.json();
+      masterRateData = {
+        year: data.year,
+        socialInsuranceRate: {
+          healthInsuranceAmount: new Decimal(data.socialInsuranceRate.healthInsuranceAmount || 0),
+          nursingInsuranceAmount: new Decimal(data.socialInsuranceRate.nursingInsuranceAmount || 0),
+          welfarePensionAmount: new Decimal(data.socialInsuranceRate.welfarePensionAmount || 0),
+          employmentInsuranceRate: new Decimal(data.socialInsuranceRate.employmentInsuranceRate || 0)
+        },
+        residentTaxAmount: new Decimal(data.residentTaxAmount || 0),
+        incomeTaxBrackets: data.incomeTaxBrackets.map(b => ({
+          minTaxableIncome: new Decimal(b.minTaxableIncome),
+          taxAmountsByDependents: b.taxAmountsByDependents.map(t => new Decimal(t))
+        }))
+      };
+
+      badge.textContent = `スプレッドシート連動完了 (${data.year}年度マスタ)`;
+      badge.className = 'status-badge success';
+    } catch (err) {
+      console.warn('GASフェッチ失敗。ローカルフォールバックを使用します:', err);
+      // 通信失敗・URL未設定時のデフォルトフォールバック
+      masterRateData = getFallbackMasterData();
+      badge.textContent = 'オフライン/初期データで動作中';
+      badge.className = 'status-badge error';
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 3. 画面UI操作（シフト欄の動的追加・削除）
+  // -------------------------------------------------------------
+  let shiftCount = 0;
+  function addShiftRow(defaultRate = 1200, defaultHours = 0) {
+    shiftCount++;
+    const container = document.getElementById('shiftsContainer');
+    const card = document.createElement('div');
+    card.className = 'shift-card';
+    card.id = `shiftCard_${shiftCount}`;
+    card.innerHTML = `
+      <div class="shift-row">
+        <div>
+          <label>時給 (円)</label>
+          <input type="number" class="hourly-rate" value="${defaultRate}" placeholder="1200">
+        </div>
+        <div>
+          <label>労働時間 (h)</label>
+          <input type="number" step="0.1" class="hours-worked" value="${defaultHours}" placeholder="160">
+        </div>
+      </div>
+      ${shiftCount > 1 ? `<button type="button" class="btn-remove" onclick="removeShiftRow('${card.id}')">削除</button>` : ''}
+      <div style="clear:both;"></div>
+    `;
+    container.appendChild(card);
+  }
+
+  function removeShiftRow(id) {
+    const card = document.getElementById(id);
+    if (card) card.remove();
+  }
+
+  // -------------------------------------------------------------
+  // 4. コア計算エンジン (Decimal.js による精度補償計算)
+  // -------------------------------------------------------------
+  function calculatePayroll() {
+    if (!masterRateData) {
+      alert('マスタデータが読み込めていません。');
+      return;
+    }
+
+    // A. 総支給額の計算 (全シフトの時給×時間の総和)
+    const rateInputs = document.querySelectorAll('.hourly-rate');
+    const hoursInputs = document.querySelectorAll('.hours-worked');
+    
+    let grossPayment = new Decimal(0);
+    for (let i = 0; i < rateInputs.length; i++) {
+      const rate = new Decimal(rateInputs[i].value || 0);
+      const hours = new Decimal(hoursInputs[i].value || 0);
+      grossPayment = grossPayment.plus(rate.times(hours));
+    }
+    grossPayment = grossPayment.toDecimalPlaces(0, Decimal.ROUND_DOWN);
+
+    // B. 社会保険料の計算
+    const social = masterRateData.socialInsuranceRate;
+    const healthIns = social.healthInsuranceAmount;
+    const nursingIns = social.nursingInsuranceAmount;
+    const welfarePen = social.welfarePensionAmount;
+    
+    // 雇用保険料 = 総支給額 × 料率 (1円未満切り捨て)
+    const empIns = grossPayment.times(social.employmentInsuranceRate).toDecimalPlaces(0, Decimal.ROUND_DOWN);
+    const totalSocial = healthIns.plus(nursingIns).plus(welfarePen).plus(empIns);
+
+    // C. 課税対象額 (総支給額 - 社会保険料合計)
+    const taxableIncome = Decimal.max(0, grossPayment.minus(totalSocial));
+
+    // D. 所得税 (源泉徴収税額) の計算
+    const dependentsCount = parseInt(document.getElementById('dependentsCount').value, 10);
+    const incomeTax = computeIncomeTax(taxableIncome, dependentsCount, masterRateData.incomeTaxBrackets);
+
+    // E. 住民税 (スプレッドシートから自動指定)
+    const residentTax = masterRateData.residentTaxAmount;
+
+    // F. 手取り額 (総支給額 - (社保合計 + 所得税 + 住民税))
+    const totalDeductions = totalSocial.plus(incomeTax).plus(residentTax);
+    const netPayment = grossPayment.minus(totalDeductions);
+
+    // -------------------------------------------------------------
+    // 5. 計算結果の画面反映
+    // -------------------------------------------------------------
+    document.getElementById('grossPayment').textContent = `${formatNum(grossPayment)} 円`;
+    document.getElementById('healthInsurance').textContent = `${formatNum(healthIns)} 円`;
+    document.getElementById('nursingInsurance').textContent = `${formatNum(nursingIns)} 円`;
+    document.getElementById('welfarePension').textContent = `${formatNum(welfarePen)} 円`;
+    document.getElementById('employmentInsurance').textContent = `${formatNum(empIns)} 円`;
+    document.getElementById('totalSocialInsurance').textContent = `${formatNum(totalSocial)} 円`;
+    document.getElementById('incomeTax').textContent = `${formatNum(incomeTax)} 円`;
+    document.getElementById('residentTax').textContent = `${formatNum(residentTax)} 円`;
+    document.getElementById('netPayment').textContent = `${formatNum(netPayment)} 円`;
+
+    document.getElementById('resultBox').style.display = 'block';
+  }
+
+  // 所得税判定ロジック (下限額判定)
+  function computeIncomeTax(taxableIncome, dependentsCount, brackets) {
+    if (taxableIncome.lte(0) || brackets.length === 0) return new Decimal(0);
+    if (taxableIncome.lt(brackets[0].minTaxableIncome)) return new Decimal(0);
+
+    let matched = brackets[0];
+    for (const b of brackets) {
+      if (taxableIncome.gte(b.minTaxableIncome)) {
+        matched = b;
+      } else {
+        break;
+      }
+    }
+
+    const maxIdx = matched.taxAmountsByDependents.length - 1;
+    const idx = Math.min(Math.max(0, dependentsCount), maxIdx);
+    return matched.taxAmountsByDependents[idx];
+  }
+
+  function formatNum(decimalVal) {
+    return Number(decimalVal.toString()).toLocaleString();
+  }
+
+  // 非常時用ローカルデフォルトマスタ
+  function getFallbackMasterData() {
+    return {
+      year: 2026,
+      socialInsuranceRate: {
+        healthInsuranceAmount: new Decimal(10557),
+        nursingInsuranceAmount: new Decimal(0),
+        welfarePensionAmount: new Decimal(16470),
+        employmentInsuranceRate: new Decimal(0.005)
+      },
+      residentTaxAmount: new Decimal(0),
+      incomeTaxBrackets: [
+        { minTaxableIncome: new Decimal(0), taxAmountsByDependents: [new Decimal(0), new Decimal(0)] },
+        { minTaxableIncome: new Decimal(105000), taxAmountsByDependents: [new Decimal(170), new Decimal(0)] },
+        { minTaxableIncome: new Decimal(107000), taxAmountsByDependents: [new Decimal(280), new Decimal(0)] }
+      ]
+    };
+  }
+</script>
+</body>
+</html>
